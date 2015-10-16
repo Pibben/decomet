@@ -1,4 +1,5 @@
 import urllib.request
+import re
 
 def parseAirportCode(tokens):
     print("Airport ICAO: %s" % tokens[0])
@@ -17,52 +18,169 @@ def parseTime(tokens):
     
     tokens.pop(0)
     
-def parseWind(tokens):
-    token = tokens[0]
-    direction = token[0:3]
-    speed = token[3:5]
-    unit = token[5:]
-    
-    if unit == "KT" or unit == "MPS":
-    
-        print("Wind %s degrees, %s %s" % (direction, speed, unit))
-    
+    if tokens[0] == "AUTO":
         tokens.pop(0)
     
-def parseVisibility(tokens):
-    visibility = tokens[0]
+def parseWind(tokens):
+    if tokens == []:
+        return False
     
-    if visibility == "CAVOK":
+    token = tokens[0]
+    
+    p = re.compile('([0-9VRB/]{3})([0-9/]{2})(G([0-9]{2}))?([A-Z]+)')
+    m = p.match(token)
+
+    if m:
+        direction = m.group(1)
+        speed = m.group(2)
+        unit = m.group(5)
+        assert(m.group(3) == None)
+        
+        if direction == "///":
+            direction = "<unknown>"
+
+        if speed == "//":
+            speed = "<unknown>"
+    
+        if direction == "VRB":
+            print("Variable wind, %s %s" % (speed, unit))
+        else:
+            print("Wind %s degrees, %s %s" % (direction, speed, unit))
+    
+        tokens.pop(0)
+        
+        #Varying
+        token = tokens[0]
+        if len(token) == 7 and token[3] == 'V':
+            toFrom = token.split('V')
+            print("Varying from %s to %s degrees\n" % (toFrom[0], toFrom[1]))
+            
+            tokens.pop(0)
+        
+    
+def parseVisibility(tokens):
+    #ESSL 160520Z 00000KT 0100 R11/0550 R29/0300V0450N FG VV000 01/01 Q1026
+    if tokens == []:
+        return False
+    
+    p = re.compile("([0-9]{4})(NDV)?|CAVOK|R([0-9]{2})/([0-9]{4})(V([0-9]{4}))?")
+    
+    m = p.match(tokens[0])
+    
+    if not m:
+        return False
+    
+    if m.group(0) == "CAVOK":
         print("Ceiling and visibility OK")
     else:
     
-        if visibility == "9999":
-            visibility = "More than 10000"
+        if m.group(1) == "9999":
+            visibilityStr = "More than 10000"
+        else:
+            visibilityStr = m.group(1)
+            
+        note = ""
+        if m.group(2) == "NDV":
+            note = " (No directional variation)"
         
-        print("Visibility: %s meters" % visibility)
+        if m.group(3):
+            if m.group(5):
+                print("Runway %s: %s, varying to %s" % (m.group(3), m.group(4), m.group(6)))
+            else:
+                print("Runway %s: %s" % (m.group(3), m.group(4)))
+        else:
+            print("Visibility: %s meters%s" % (visibilityStr, note))
+        
+
+
     
     tokens.pop(0)
     
+    return True
+    
 def parseFog(tokens):
+    if tokens == []:
+        return False
+    
     token = tokens[0]
     
-    fogMap = {'FG': 'fog',
-              'MIFG': 'shallow fog',
-              'BCFG': 'fog patches',
-              'PRFG': 'partial fog',
-              'FZFG': 'freezing fog'}
+    intensity = "Moderate"
+    if token[0] == '-':
+        intensity = "Light"
+        token = token[1:]
+    elif token[0] == '+':
+        intensity = "Heavy"
+        token = token[1:]
+        
     
-    if token in fogMap:
-        print("Fog: %s" % fogMap[token])
+    descMap = {'MI': 'shallow ',
+               'PR': 'partial ',
+               'BC': 'patches of ',
+               'DR': 'low drifting',
+               'BL': 'blowing',
+               'SH': 'showers of',
+               'FZ': 'freezing ',
+               'RE': 'recent ',
+               '': ''}
+    
+    decipMap = {'DZ': 'drizzle',
+                'RA': 'rain',
+                'SN': 'snow',
+                'GS': 'small of soft hail',
+                'GR': 'hail',
+                'PE': 'ice pellets',
+                'IC': 'ic crystals',
+                'TS': 'thunderstorm',
+                'HZ': 'haze',
+                'BR': 'mist',
+                'FG': 'fog',
+                'FU': 'smoke',
+                'SS': 'sandstorm',
+                'DS': 'duststorm',
+                'PO': 'dust devils',
+                'DU': 'dust',
+                'SQ': 'squall',
+                'FC': 'funnel cloud',
+                'UP': 'unknown precipitation'}
+    
+    
+    if len(token) == 2:
+        desc = ''
+        decip = token
+    elif len(token) == 4:
+        desc = token[0:2]
+        decip = token[2:4]
+    else:
+        return False
+            
+        
+    
+    if decip in decipMap and desc in descMap:
+        print("%s %s%s" % (intensity, descMap[desc], decipMap[decip]))
         tokens.pop(0)
+        
+        return True
+    return False
     
 def parseClouds(tokens):
+    if tokens == []:
+        return False
+    
     token = tokens[0]
     coverage = token[0:3]
-    height = token[3:]
+    height = token[3:6]
     
     if coverage == 'NSC':
         print("No significant clouds")
+        tokens.pop(0)
+    elif coverage == 'SKC':
+        print("Sky clear")
+        tokens.pop(0)
+    elif coverage == 'NCD':
+        print("No clouds detected")
+        tokens.pop(0)
+    elif coverage[0:2] == 'VV':
+        print("Vertical visibility: %s" % coverage[2:])
         tokens.pop(0)
     else:
         
@@ -72,14 +190,23 @@ def parseClouds(tokens):
                        'OVC': 'overcast'}
 
         if coverage in coverageMap:
+            
+            type = ""
+            if token[-2:] == "CB":
+                type = " (Cumulonimbus cloud)"
     
-            print("Clouds: %s at %d feet" % (coverageMap[coverage], int(height)*100))
+            print("Clouds: %s at %d feet%s" % (coverageMap[coverage], int(height)*100, type))
     
             tokens.pop(0)
+            return True
+    return False
     
 
     
 def parseTemperatures(tokens):
+    if tokens == []:
+        return False
+    
     def parseTemperature(string):
         if string[0] == 'M':
             return -int(string[1:])
@@ -88,6 +215,10 @@ def parseTemperatures(tokens):
     
     token = tokens[0]
     temps = token.split('/')
+    
+    if len(temps) != 2:
+        return False
+    
     temperature = temps[0]
     dewpoint = temps[1]
     
@@ -96,9 +227,15 @@ def parseTemperatures(tokens):
     tokens.pop(0)
     
 def parseQNH(tokens):
+    if tokens == []:
+        return False
+    
     token = tokens[0]
     assert(token[0] == 'Q')
     qnh = token[1:]
+    
+    if qnh == "////":
+        qnh = "<unknown>"
     
     print("QNH: %s hPa" % qnh)
     
@@ -106,7 +243,7 @@ def parseQNH(tokens):
     
 def parseTrend(tokens):
     if tokens == []:
-        return
+        return False
     
     token = tokens[0]
     
@@ -148,7 +285,42 @@ def parseTrend(tokens):
         
     else:
         print("Unknown trend %s" % token)
-        tokens.pop(0)
+        return False
+        
+def parseRunway(tokens):
+    #http://www.flyingineurope.be/MetarRunway.htm
+    if tokens == []:
+        return False
+    
+    token = tokens[0]
+    
+    rwydata = token.split('/')
+    if len(rwydata) != 2:
+        return False
+    
+    (rwy, data) = tuple(rwydata)
+    
+    friction = data[-2:]
+    
+    status = ""
+    if data[0:4] == "CLRD":
+        status = "Cleared"
+    
+    print("Runway %s: %s, friction %s" % (rwy, status, friction))
+    
+    tokens.pop(0)
+    
+    return True
+
+def parseRemark(tokens):
+    if tokens == []:
+        return False
+    
+    if tokens[0] != "RMK":
+        return False
+    
+    print("Remark: %s" % ' '.join(tokens[1:]))
+    tokens = []
         
 def parse(url):
     with urllib.request.urlopen(url) as response:
@@ -163,23 +335,50 @@ def parse(url):
         parseAirportCode(tokens)
         parseTime(tokens)
         parseWind(tokens)
-        parseVisibility(tokens)
+        while parseVisibility(tokens):
+            pass
         parseFog(tokens)
-        parseClouds(tokens)
+        while parseClouds(tokens):
+            pass
         parseTemperatures(tokens)
         parseQNH(tokens)
         
-        while tokens != []:
-            parseTrend(tokens)
+        parseRunway(tokens)
+        
+        while tokens != [] and parseTrend(tokens):
+            pass
+            
+        parseRemark(tokens)
+            
+def iterateAll():
+    with urllib.request.urlopen('ftp://tgftp.nws.noaa.gov/data/observations/metar/stations/') as files:
+        listing = files.read().splitlines(True)
+        
+        for l in listing:
+            filename = l.split()[-1].decode('ascii')
+            
+            forbidden = ['A302.TXT', 'AGGG.TXT', 'AK15.TXT', 'ESGL.TXT', 'ESGR.TXT', 'ATAR.TXT']
+            
+            if filename in forbidden:
+                continue
+            
+            #if filename[0:2] != "ES":
+            #    continue
+            
+            parse("ftp://tgftp.nws.noaa.gov/data/observations/metar/stations/%s" % filename)
+            print("-----")
+        
 
 def main():
-
-    parse('ftp://tgftp.nws.noaa.gov/data/observations/metar/stations/LXGB.TXT')
-    print("---\n")
+    #iterateAll()
     parse('ftp://tgftp.nws.noaa.gov/data/observations/metar/stations/ESSL.TXT')
-    print("---\n")
-    parse('ftp://tgftp.nws.noaa.gov/data/observations/metar/stations/YSSY.TXT')
-    print("---\n")
+#    print("---\n")
+#    parse('ftp://tgftp.nws.noaa.gov/data/observations/metar/stations/ESSL.TXT')
+#    print("---\n")
+#    parse('ftp://tgftp.nws.noaa.gov/data/observations/metar/stations/YSSY.TXT')
+#    print("---\n")
+#    parse('ftp://tgftp.nws.noaa.gov/data/observations/metar/stations/EDDT.TXT')
+#    print("---\n")
 
 
 if __name__ == "__main__":
