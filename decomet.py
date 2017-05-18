@@ -1,24 +1,33 @@
 import urllib.request
 import re
 
-def parseAirportCode(tokens):
-    print("Airport ICAO: %s" % tokens[0])
-    tokens.pop(0)
+def parseAirportCode(tokens, metar):
+    #print("Airport ICAO: %s" % tokens[0])
+    metar['airport'] = tokens.pop(0)
     
-def parseTime(tokens):
+def parseTime(tokens, metar):
     token = tokens[0]
+
+    if len(token) != 7:
+        raise ValueError('Time token wrong length')
+
     date = token[0:2]
     hours = token[2:4]
     minutes = token[4:6]
     
-    assert(token[6] == 'Z')
+    if token[6] != 'Z':
+        raise ValueError('Time token malformed')
+
+    metar['date'] = date
+    metar['time'] = "%s:%s" % (hours, minutes)
     
-    print("Date: %s" % date)
-    print("UTC time: %s:%s" % (hours, minutes))
+    #print("Date: %s" % date)
+    #print("UTC time: %s:%s" % (hours, minutes))
     
     tokens.pop(0)
     
-    if tokens[0] == "AUTO":
+    if tokens and tokens[0] == "AUTO":
+        metar['automatic'] = True
         tokens.pop(0)
     
 def parseWind(tokens):
@@ -321,34 +330,37 @@ def parseRemark(tokens):
     
     print("Remark: %s" % ' '.join(tokens[1:]))
     tokens = []
+
+def parseString(metar):
+    print("-> %s" % metar)
+
+    tokens = metar.split(' ')
+
+    parseAirportCode(tokens)
+    parseTime(tokens)
+    parseWind(tokens)
+    while parseVisibility(tokens):
+        pass
+    parseFog(tokens)
+    while parseClouds(tokens):
+        pass
+    parseTemperatures(tokens)
+    parseQNH(tokens)
+
+    parseRunway(tokens)
+
+    while tokens != [] and parseTrend(tokens):
+        pass
+
+    parseRemark(tokens)
         
 def parse(url):
     with urllib.request.urlopen(url) as response:
         message = response.read()
         
-        metar = message.splitlines(True)[1].decode("utf-8").strip()
+        metar = message.splitlines(True)[1].decode("utf-8").strip() #Remove first line
         
-        print("-> %s" % metar)
-        
-        tokens = metar.split(' ')
-        
-        parseAirportCode(tokens)
-        parseTime(tokens)
-        parseWind(tokens)
-        while parseVisibility(tokens):
-            pass
-        parseFog(tokens)
-        while parseClouds(tokens):
-            pass
-        parseTemperatures(tokens)
-        parseQNH(tokens)
-        
-        parseRunway(tokens)
-        
-        while tokens != [] and parseTrend(tokens):
-            pass
-            
-        parseRemark(tokens)
+        parseString(metar)
             
 def iterateAll():
     with urllib.request.urlopen('ftp://tgftp.nws.noaa.gov/data/observations/metar/stations/') as files:
@@ -367,11 +379,38 @@ def iterateAll():
             
             parse("ftp://tgftp.nws.noaa.gov/data/observations/metar/stations/%s" % filename)
             print("-----")
-        
+
+import unittest
+
+class DecometTest(unittest.TestCase):
+
+    def testParseAirportCode(self):
+        metar = {}
+        tokens = ['ESSL']
+        parseAirportCode(tokens, metar)
+        self.assertEqual(metar['airport'], 'ESSL')
+
+    def testParseTime(self):
+        metar = {}
+        tokens = ['170620Z', 'AUTO']
+        parseTime(tokens, metar)
+        self.assertEqual(metar['date'], '17')
+        self.assertEqual(metar['time'], '06:20')
+        self.assertEqual(metar['automatic'], True)
+
+        with self.assertRaises(ValueError):
+            tokens = ['70620Z']
+            parseTime(tokens, {})
+
+        with self.assertRaises(ValueError):
+            tokens = ['170620K']
+            parseTime(tokens, {})
 
 def main():
+    unittest.main()
+
     #iterateAll()
-    parse('ftp://tgftp.nws.noaa.gov/data/observations/metar/stations/ESSL.TXT')
+    #parse('ftp://tgftp.nws.noaa.gov/data/observations/metar/stations/ESSL.TXT')
 #    print("---\n")
 #    parse('ftp://tgftp.nws.noaa.gov/data/observations/metar/stations/ESSL.TXT')
 #    print("---\n")
