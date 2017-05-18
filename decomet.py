@@ -30,9 +30,9 @@ def parseTime(tokens, metar):
         metar['automatic'] = True
         tokens.pop(0)
     
-def parseWind(tokens):
-    if tokens == []:
-        return False
+def parseWind(tokens, metar):
+    if not tokens:
+        return
     
     token = tokens[0]
     
@@ -40,31 +40,41 @@ def parseWind(tokens):
     m = p.match(token)
 
     if m:
-        direction = m.group(1)
-        speed = m.group(2)
-        unit = m.group(5)
-        assert(m.group(3) == None)
-        
-        if direction == "///":
-            direction = "<unknown>"
+        wind = {}
+        metar['wind'] = wind
 
-        if speed == "//":
-            speed = "<unknown>"
-    
+        assert(m.group(3) == None)
+
+        unit = m.group(5)
+        wind['unit'] = unit
+
+        direction = m.group(1)
+
+        if direction != "///":
+            wind['direction'] = direction
+
+        speed = m.group(2)
+
+        if speed != "//":
+            wind['speed'] = speed
+
         if direction == "VRB":
-            print("Variable wind, %s %s" % (speed, unit))
-        else:
-            print("Wind %s degrees, %s %s" % (direction, speed, unit))
-    
+            wind['variable'] = True
+
         tokens.pop(0)
-        
+
         #Varying
-        token = tokens[0]
-        if len(token) == 7 and token[3] == 'V':
-            toFrom = token.split('V')
-            print("Varying from %s to %s degrees\n" % (toFrom[0], toFrom[1]))
-            
-            tokens.pop(0)
+        if tokens:
+            token = tokens[0]
+            if len(token) == 7 and token[3] == 'V': #TODO: Regexp
+                varying = {}
+                wind['varying'] = varying
+                toFrom = token.split('V')
+                varying['from'] = toFrom[0]
+                varying['to'] = toFrom[1]
+                print("Varying from %s to %s degrees\n" % (toFrom[0], toFrom[1]))
+
+                tokens.pop(0)
         
     
 def parseVisibility(tokens):
@@ -405,6 +415,14 @@ class DecometTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             tokens = ['170620K']
             parseTime(tokens, {})
+
+    def testParseWind(self):
+        metar = {}
+        tokens = ['12345KT']
+        parseWind(tokens, metar)
+        self.assertEqual(metar['wind']['direction'], '123')
+        self.assertEqual(metar['wind']['speed'], '45')
+
 
 def main():
     unittest.main()
