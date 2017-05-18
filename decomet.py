@@ -1,5 +1,6 @@
 import urllib.request
 import re
+from pprint import pprint
 
 def parseAirportCode(tokens, metar):
     #print("Airport ICAO: %s" % tokens[0])
@@ -336,8 +337,10 @@ def parseTrend(tokens, trend):
         parseSubMetar(tokens, trend)
         
     else:
-        print("Unknown trend %s" % token)
+        #print("Unknown trend %s" % token)
         return False
+
+    return True
         
 def parseRunway(tokens, runway):
     #http://www.flyingineurope.be/MetarRunway.htm
@@ -421,46 +424,89 @@ def parseRunway(tokens, runway):
 
     return True
 
-def parseRemark(tokens):
+def parseRemark(tokens, metar):
     if tokens == []:
         return False
     
     if tokens[0] != "RMK":
         return False
     
-    print("Remark: %s" % ' '.join(tokens[1:]))
-    tokens = []
+    #print("Remark: %s" % ' '.join(tokens[1:]))
+    metar['remark'] = ' '.join(tokens[1:])
 
-def parseString(metar):
-    print("-> %s" % metar)
+def parseString(string):
+    #print("-> %s" % metar)
 
-    tokens = metar.split(' ')
+    tokens = string.split(' ')
 
-    parseAirportCode(tokens)
-    parseTime(tokens)
-    parseWind(tokens)
-    while parseVisibility(tokens):
-        pass
-    parseFog(tokens)
-    while parseClouds(tokens):
-        pass
-    parseTemperatures(tokens)
-    parseQNH(tokens)
+    metar = {}
 
-    parseRunway(tokens)
+    parseAirportCode(tokens, metar)
+    parseTime(tokens, metar)
 
-    while tokens != [] and parseTrend(tokens):
-        pass
+    wind = {}
+    metar['wind'] = wind
+    parseWind(tokens, wind)
 
-    parseRemark(tokens)
-        
+    visibilityList = []
+    metar['visibility'] = visibilityList
+
+    while True:
+        visibility = {}
+        ok = parseVisibility(tokens, visibility)
+        if not ok:
+            break
+
+        visibilityList.append(visibility)
+
+    precip = {}
+    parseFog(tokens, precip)
+    metar['precipitation'] = precip
+
+    cloudList = []
+    metar['clouds'] = cloudList
+
+    while True:
+        clouds = {}
+        ok = parseClouds(tokens, clouds)
+        if not ok:
+            break
+
+        cloudList.append(clouds)
+
+    parseTemperatures(tokens, metar)
+
+    parseQNH(tokens, metar)
+
+    runway = {}
+    parseRunway(tokens, runway)
+    metar['runway'] = runway
+
+    trendList = []
+    metar['trends'] = trendList
+
+    while tokens:
+        trend = {}
+        ok = parseTrend(tokens, trend)
+
+        if not ok:
+            break
+
+        trendList.append(trend)
+
+    parseRemark(tokens, metar)
+
+    return metar
+
 def parse(url):
     with urllib.request.urlopen(url) as response:
         message = response.read()
         
-        metar = message.splitlines(True)[1].decode("utf-8").strip() #Remove first line
-        
-        parseString(metar)
+        string = message.splitlines(True)[1].decode("utf-8").strip() #Remove first line
+
+        print(string)
+        metar = parseString(string)
+        pprint(metar)
             
 def iterateAll():
     with urllib.request.urlopen('ftp://tgftp.nws.noaa.gov/data/observations/metar/stations/') as files:
@@ -656,19 +702,25 @@ class DecometTest(unittest.TestCase):
         self.assertEqual(rwy['depth'], '40cm')
         self.assertEqual(rwy['friction'], 'good')
 
+    def testParseRemark(self):
+        metar = {}
+        tokens = ['RMK', 'FOO', 'BAR']
+        parseRemark(tokens, metar)
+
+        self.assertEqual(metar['remark'], 'FOO BAR')
+
 
 def main():
-    unittest.main()
+    #unittest.main()
 
     #iterateAll()
+
     #parse('ftp://tgftp.nws.noaa.gov/data/observations/metar/stations/ESSL.TXT')
-#    print("---\n")
-#    parse('ftp://tgftp.nws.noaa.gov/data/observations/metar/stations/ESSL.TXT')
-#    print("---\n")
-#    parse('ftp://tgftp.nws.noaa.gov/data/observations/metar/stations/YSSY.TXT')
-#    print("---\n")
-#    parse('ftp://tgftp.nws.noaa.gov/data/observations/metar/stations/EDDT.TXT')
-#    print("---\n")
+    #print("---\n")
+    #parse('ftp://tgftp.nws.noaa.gov/data/observations/metar/stations/YSSY.TXT')
+    #print("---\n")
+    parse('ftp://tgftp.nws.noaa.gov/data/observations/metar/stations/EDDT.TXT')
+    print("---\n")
 
 
 if __name__ == "__main__":
