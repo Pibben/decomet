@@ -341,6 +341,7 @@ def parseTrend(tokens, trend):
         
 def parseRunway(tokens, runway):
     #http://www.flyingineurope.be/MetarRunway.htm
+    #http://sto.iki.fi/metar/
     #TODO: Find real data
     if tokens == []:
         return False
