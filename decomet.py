@@ -351,22 +351,69 @@ def parseRunway(tokens, runway):
     if len(token) != 8:
         return False
 
-    p = re.compile("([0-9]{2})(CLRD|([0-9/]{1})([0-9]{1})([0-9]{2}))([0-9/]{2})")
+    p = re.compile("([0-9]{2})(CLRD|([0-9/]{1})([1259]{1})([0-9]{2}))([0-9/]{2})")
 
     m = p.match(token)
 
-    #print(m.groups())
-
-    rwy = m.groups(0)
+    if int(m.group(1)) < 50:
+        runway['runway'] = m.group(1)
+    else:
+        runway['runway'] = str(int(m.group(1))-50)+'R'
 
     status = ""
-    if m.groups(1) == "CLRD":
+    if m.group(1) == "CLRD":
         status = "Cleared"
 
-    type = m.groups(2)
-    extent = m.groups(3)
-    depth = m.groups(4)
-    friction = m.groups(5)
+    typeMap = {'0': 'clear and dry',
+               '1': 'damp',
+               '2': 'wet or puddles',
+               '3': 'frost',
+               '4': 'dry snow',
+               '5': 'wet snow',
+               '6': 'slush',
+               '7': 'ice',
+               '8': 'compacted snow',
+               '9': 'frozen ridges',
+               '/': 'no report'}
+    runway['type'] = typeMap[m.group(3)]
+
+    extentMap = {'1': '1-10%',
+                 '2': '11-25%',
+                 '5': '26-50%',
+                 '9': '51-100%'}
+    runway['extent'] = extentMap[m.group(4)]
+
+    depthMap = {'00': 'less than 1mm',
+                '92': '10cm',
+                '93': '15cm',
+                '94': '20cm',
+                '95': '25cm',
+                '96': '30cm',
+                '97': '35cm',
+                '98': '40cm',
+                '99': 'rwy not in use'}
+
+    depth = m.group(5)
+
+    if int(depth) > 0 and int(depth) <= 90:
+        runway['depth'] = depth+'mm'
+    else:
+        runway['depth'] = depthMap[depth]
+
+    frictionMap = {'91': 'poor',
+                   '92': 'poor/medium',
+                   '93': 'medium',
+                   '94': 'medium/good',
+                   '95': 'good',
+                   '99': 'unreliable measurement'}
+
+    friction = m.group(6)
+
+    if int(friction) <= 90:
+        runway['friction'] = str(float(friction) * 0.01)
+    elif friction in frictionMap:
+        runway['friction'] = frictionMap[friction]
+
 
     #print("Runway %s: %s, friction %s" % (rwy, status, friction))
 
@@ -592,6 +639,23 @@ class DecometTest(unittest.TestCase):
         rwy = {}
         tokens = ['74692225']
         parseRunway(tokens, rwy)
+
+        self.assertEqual(rwy['runway'], '24R')
+        self.assertEqual(rwy['type'], 'slush')
+        self.assertEqual(rwy['extent'], '51-100%')
+        self.assertEqual(rwy['depth'], '22mm')
+        self.assertEqual(rwy['friction'], '0.25')
+
+        rwy = {}
+        tokens = ['24119895']
+        parseRunway(tokens, rwy)
+
+        self.assertEqual(rwy['runway'], '24')
+        self.assertEqual(rwy['type'], 'damp')
+        self.assertEqual(rwy['extent'], '1-10%')
+        self.assertEqual(rwy['depth'], '40cm')
+        self.assertEqual(rwy['friction'], 'good')
+
 
 def main():
     unittest.main()
