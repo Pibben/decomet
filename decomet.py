@@ -50,7 +50,10 @@ def parseWind(tokens, metar):
 
         direction = m.group(1)
 
-        if direction != "///":
+        if direction == "VRB":
+            wind['variable'] = True
+
+        elif direction != "///":
             wind['direction'] = direction
 
         speed = m.group(2)
@@ -58,8 +61,6 @@ def parseWind(tokens, metar):
         if speed != "//":
             wind['speed'] = speed
 
-        if direction == "VRB":
-            wind['variable'] = True
 
         tokens.pop(0)
 
@@ -72,15 +73,17 @@ def parseWind(tokens, metar):
                 toFrom = token.split('V')
                 varying['from'] = toFrom[0]
                 varying['to'] = toFrom[1]
-                print("Varying from %s to %s degrees\n" % (toFrom[0], toFrom[1]))
 
                 tokens.pop(0)
         
     
-def parseVisibility(tokens):
+def parseVisibility(tokens, metar):
     #ESSL 160520Z 00000KT 0100 R11/0550 R29/0300V0450N FG VV000 01/01 Q1026
     if tokens == []:
         return False
+
+    visibility = {}
+    metar['visibility'] = visibility
     
     p = re.compile("([0-9]{4})(NDV)?|CAVOK|R([0-9]{2})/([0-9]{4})(V([0-9]{4}))?")
     
@@ -88,61 +91,64 @@ def parseVisibility(tokens):
     
     if not m:
         return False
-    
+
     if m.group(0) == "CAVOK":
-        print("Ceiling and visibility OK")
+        #print("Ceiling and visibility OK")
+        visibility['CAVOK'] = True
     else:
     
         if m.group(1) == "9999":
-            visibilityStr = "More than 10000"
+            visibility['distance'] = "More than 10000"
         else:
-            visibilityStr = m.group(1)
+            visibility['distance'] = m.group(1)
             
         note = ""
         if m.group(2) == "NDV":
             note = " (No directional variation)"
         
         if m.group(3):
+            runways = {}
+            visibility['runways'] = runways
+            thisRunway = {}
+            runways[m.group(3)] = thisRunway
+
             if m.group(5):
-                print("Runway %s: %s, varying to %s" % (m.group(3), m.group(4), m.group(6)))
+                #print("Runway %s: %s, varying to %s" % (m.group(3), m.group(4), m.group(6)))
+                thisRunway['varying'] = {'from': m.group(4), 'to': m.group(6)}
             else:
-                print("Runway %s: %s" % (m.group(3), m.group(4)))
-        else:
-            print("Visibility: %s meters%s" % (visibilityStr, note))
-        
+                #print("Runway %s: %s" % (m.group(3), m.group(4)))
+                thisRunway['distance'] = m.group(4)
 
-
-    
     tokens.pop(0)
     
     return True
     
-def parseFog(tokens):
+def parseFog(tokens, metar):
     if tokens == []:
         return False
     
     token = tokens[0]
     
-    intensity = "Moderate"
+    intensity = "moderate"
     if token[0] == '-':
-        intensity = "Light"
+        intensity = "light"
         token = token[1:]
     elif token[0] == '+':
-        intensity = "Heavy"
+        intensity = "heavy"
         token = token[1:]
         
     
-    descMap = {'MI': 'shallow ',
-               'PR': 'partial ',
-               'BC': 'patches of ',
+    descMap = {'MI': 'shallow',
+               'PR': 'partial',
+               'BC': 'patches',
                'DR': 'low drifting',
                'BL': 'blowing',
-               'SH': 'showers of',
-               'FZ': 'freezing ',
-               'RE': 'recent ',
+               'SH': 'showers',
+               'FZ': 'freezing',
+               'RE': 'recent',
                '': ''}
     
-    decipMap = {'DZ': 'drizzle',
+    precipMap = {'DZ': 'drizzle',
                 'RA': 'rain',
                 'SN': 'snow',
                 'GS': 'small of soft hail',
@@ -162,7 +168,6 @@ def parseFog(tokens):
                 'FC': 'funnel cloud',
                 'UP': 'unknown precipitation'}
     
-    
     if len(token) == 2:
         desc = ''
         decip = token
@@ -171,58 +176,75 @@ def parseFog(tokens):
         decip = token[2:4]
     else:
         return False
-            
-        
-    
-    if decip in decipMap and desc in descMap:
-        print("%s %s%s" % (intensity, descMap[desc], decipMap[decip]))
+
+    if decip in precipMap and desc in descMap:
+        #print("%s %s%s" % (intensity, descMap[desc], pecipMap[decip]))
+        percip = {}
+        metar['precipitation'] = percip
+
+        percip['intensity'] = intensity
+        percip['description'] = descMap[desc]
+        percip['type'] = precipMap[decip]
+
         tokens.pop(0)
         
         return True
     return False
     
-def parseClouds(tokens):
+def parseClouds(tokens, metar):
+    #TODO: Add octas
     if tokens == []:
         return False
     
     token = tokens[0]
-    coverage = token[0:3]
+    coverage = token[0:3] #TODO: Find real METAR with VV
     height = token[3:6]
+
+    clouds = {}
+    metar['clouds'] = clouds
     
     if coverage == 'NSC':
-        print("No significant clouds")
+        #print("No significant clouds")
+        clouds['status'] = "No significant clouds"
         tokens.pop(0)
     elif coverage == 'SKC':
-        print("Sky clear")
+        #print("Sky clear")
+        clouds['status'] = "Sky clear"
         tokens.pop(0)
     elif coverage == 'NCD':
-        print("No clouds detected")
+        #print("No clouds detected")
+        clouds['status'] = "No clouds detected"
         tokens.pop(0)
     elif coverage[0:2] == 'VV':
-        print("Vertical visibility: %s" % coverage[2:])
+        #print("Vertical visibility: %s" % coverage[2:])
+        height = token[2:5]
+        clouds['vertical visibility'] = str(int(height)*100)
         tokens.pop(0)
     else:
-        
-        coverageMap = {'FEW': 'few clouds',
-                       'SCT': 'scattered clouds',
-                       'BKN': 'broken clouds',
+        coverageMap = {'FEW': 'few',
+                       'SCT': 'scattered',
+                       'BKN': 'broken',
                        'OVC': 'overcast'}
 
         if coverage in coverageMap:
             
             type = ""
-            if token[-2:] == "CB":
-                type = " (Cumulonimbus cloud)"
-    
-            print("Clouds: %s at %d feet%s" % (coverageMap[coverage], int(height)*100, type))
+            if token[-2:] == "CB": #TODO: Add TCU (Towering Cumulus)
+                #type = " (Cumulonimbus cloud)"
+                clouds['type'] = 'cumulonimbus'
+
+            #print("Clouds: %s at %d feet%s" % (coverageMap[coverage], int(height)*100, type))
+            clouds['coverage'] = coverageMap[coverage]
+            clouds['height'] = str(int(height)*100)
     
             tokens.pop(0)
+
             return True
+
     return False
     
 
-    
-def parseTemperatures(tokens):
+def parseTemperatures(tokens, metar):
     if tokens == []:
         return False
     
@@ -241,11 +263,15 @@ def parseTemperatures(tokens):
     temperature = temps[0]
     dewpoint = temps[1]
     
-    print("Temperature %d C, dewpoint %d C" % (parseTemperature(temperature), parseTemperature(dewpoint)))
+    #print("Temperature %d C, dewpoint %d C" % (parseTemperature(temperature), parseTemperature(dewpoint)))
+    metar['temperature'] = str(parseTemperature(temperature))
+    metar['dew point'] = str(parseTemperature(dewpoint))
     
     tokens.pop(0)
+
+    return True
     
-def parseQNH(tokens):
+def parseQNH(tokens, metar):
     if tokens == []:
         return False
     
@@ -256,18 +282,23 @@ def parseQNH(tokens):
     if qnh == "////":
         qnh = "<unknown>"
     
-    print("QNH: %s hPa" % qnh)
+    #print("QNH: %s hPa" % qnh)
+    metar['QNH'] = qnh
     
     tokens.pop(0)
     
-def parseTrend(tokens):
+def parseTrend(tokens, metar):
     if tokens == []:
         return False
     
     token = tokens[0]
+
+    trend = {}
+    metar['trend'] = trend
     
     if token == "NOSIG":
-        print("No significant change expected within next 2 hours")
+        #print("No significant change expected within next 2 hours")
+        trend['type'] = 'No significant change expected'
         tokens.pop(0)
 
     elif token[0:2] == "FM":
@@ -275,12 +306,13 @@ def parseTrend(tokens):
         changeMinutes = token[4:]
         tokens.pop(0)
         
-        print("From %s:%s UTC:" % (changeHours, changeMinutes))
+        #print("From %s:%s UTC:" % (changeHours, changeMinutes))
+        trend['type'] = 'change'
         
-        parseWind(tokens)
-        parseVisibility(tokens)
-        parseFog(tokens)
-        parseClouds(tokens)
+        parseWind(tokens, metar)
+        parseVisibility(tokens, metar)
+        parseFog(tokens, metar)
+        parseClouds(tokens, metar)
         
     elif token == "TEMPO":
         tokens.pop(0)
@@ -295,12 +327,13 @@ def parseTrend(tokens):
 
         tokens.pop(0)
         
-        print("Temporary %s:%s to %s:%s:" % (fromHours, fromMinutes, toHours, toMinutes))
+        #print("Temporary %s:%s to %s:%s:" % (fromHours, fromMinutes, toHours, toMinutes))
+        trend['type'] = 'temporary'
         
-        parseWind(tokens)
-        parseVisibility(tokens)
-        parseFog(tokens)
-        parseClouds(tokens)
+        parseWind(tokens, metar)
+        parseVisibility(tokens, metar)
+        parseFog(tokens, metar)
+        parseClouds(tokens, metar)
         
     else:
         print("Unknown trend %s" % token)
@@ -420,9 +453,109 @@ class DecometTest(unittest.TestCase):
         metar = {}
         tokens = ['12345KT']
         parseWind(tokens, metar)
+
         self.assertEqual(metar['wind']['direction'], '123')
         self.assertEqual(metar['wind']['speed'], '45')
+        self.assertEqual(metar['wind']['unit'], 'KT')
 
+        metar = {}
+        tokens = ['VRB45KT', '120V140']
+        parseWind(tokens, metar)
+
+        self.assertNotIn('direction', metar['wind'])
+        self.assertTrue(metar['wind']['variable'])
+
+        self.assertEqual(metar['wind']['speed'], '45')
+        self.assertEqual(metar['wind']['varying']['from'], '120')
+        self.assertEqual(metar['wind']['varying']['to'], '140')
+
+    def testParseVisibility(self):
+        metar = {}
+        tokens = ['CAVOK']
+
+        parseVisibility(tokens, metar)
+
+        self.assertTrue(metar['visibility']['CAVOK'])
+
+        metar = {}
+        tokens = ['0100']
+        parseVisibility(tokens, metar)
+        self.assertEqual(metar['visibility']['distance'], '0100')
+
+        metar = {}
+        tokens = ['R11/0550']
+        parseVisibility(tokens, metar)
+        self.assertEqual(metar['visibility']['runways']['11']['distance'], '0550')
+
+        metar = {}
+        tokens = ['R29/0300V0450N']
+        parseVisibility(tokens, metar)
+        self.assertEqual(metar['visibility']['runways']['29']['varying']['from'], '0300')
+        self.assertEqual(metar['visibility']['runways']['29']['varying']['to'], '0450')
+
+    def testParseFog(self):
+        metar = {}
+        tokens = ['RA']
+        parseFog(tokens, metar)
+
+        self.assertEqual(metar['precipitation']['type'], 'rain')
+
+        metar = {}
+        tokens = ['+BLSN']
+        parseFog(tokens, metar)
+
+        self.assertEqual(metar['precipitation']['intensity'], 'heavy')
+        self.assertEqual(metar['precipitation']['description'], 'blowing')
+        self.assertEqual(metar['precipitation']['type'], 'snow')
+
+    def testParseClouds(self):
+        metar = {}
+        tokens = ['NSC']
+        parseClouds(tokens, metar)
+
+        self.assertEqual(metar['clouds']['status'], 'No significant clouds')
+
+        metar = {}
+        tokens = ['VV007']
+        parseClouds(tokens, metar)
+
+        self.assertEqual(metar['clouds']['vertical visibility'], '700')
+
+        metar = {}
+        tokens = ['BKN050CB']
+        parseClouds(tokens, metar)
+
+        self.assertEqual(metar['clouds']['coverage'], 'broken')
+        self.assertEqual(metar['clouds']['height'], '5000')
+        self.assertEqual(metar['clouds']['type'], 'cumulonimbus')
+
+    def testParseTemperatures(self):
+        metar = {}
+        tokens = ['M05/02']
+        parseTemperatures(tokens, metar)
+
+        self.assertEqual(metar['temperature'], '-5')
+        self.assertEqual(metar['dew point'], '2')
+
+    def testParseQNH(self):
+        metar = {}
+        tokens = ['Q1007']
+        parseQNH(tokens, metar)
+
+        self.assertEqual(metar['QNH'], '1007')
+
+    def testParseTrend(self):
+        metar = {}
+        tokens = ['NOSIG']
+        parseTrend(tokens, metar)
+
+        self.assertEqual(metar['trend']['type'], 'No significant change expected')
+
+        metar = {}
+        tokens = ['FM1325', '10044KT']
+        parseTrend(tokens, metar)
+
+        self.assertEqual(metar['trend']['type'], 'change')
 
 def main():
     unittest.main()
