@@ -41,8 +41,6 @@ def parseWind(tokens, wind):
     m = p.match(token)
 
     if m:
-        assert(m.group(3) == None)
-
         unit = m.group(5)
         wind['unit'] = unit
 
@@ -59,6 +57,8 @@ def parseWind(tokens, wind):
         if speed != "//":
             wind['speed'] = speed
 
+        if m.group(3):
+            wind['speed in gusts'] = m.group(3)[-2:]
 
         tokens.pop(0)
 
@@ -76,9 +76,15 @@ def parseWind(tokens, wind):
         
     
 def parseVisibility(tokens, visibility):
-    #ESSL 160520Z 00000KT 0100 R11/0550 R29/0300V0450N FG VV000 01/01 Q1026
+
     if tokens == []:
         return False
+
+    if len(tokens[0]) == 4 and tokens[0][-2:] == 'KM':
+        visibility['distance'] = tokens[0]
+        tokens.pop(0)
+
+        return True
 
     p = re.compile("([0-9]{4})(NDV)?|CAVOK|R([0-9]{2})/([0-9]{4})(V([0-9]{4}))?")
     
@@ -176,7 +182,8 @@ def parseFog(tokens, precip):
         #print("%s %s%s" % (intensity, descMap[desc], pecipMap[decip]))
 
         precip['intensity'] = intensity
-        precip['description'] = descMap[desc]
+        if desc != '':
+            precip['description'] = descMap[desc]
         precip['type'] = precipMap[decip]
 
         tokens.pop(0)
@@ -449,7 +456,6 @@ def parseString(string):
     parseWind(tokens, wind)
 
     visibilityList = []
-    metar['visibility'] = visibilityList
 
     while True:
         visibility = {}
@@ -459,12 +465,15 @@ def parseString(string):
 
         visibilityList.append(visibility)
 
+    if visibilityList:
+        metar['visibility'] = visibilityList
+
     precip = {}
     parseFog(tokens, precip)
-    metar['precipitation'] = precip
+    if precip:
+        metar['precipitation'] = precip
 
     cloudList = []
-    metar['clouds'] = cloudList
 
     while True:
         clouds = {}
@@ -474,16 +483,19 @@ def parseString(string):
 
         cloudList.append(clouds)
 
+    if cloudList:
+        metar['clouds'] = cloudList
+
     parseTemperatures(tokens, metar)
 
     parseQNH(tokens, metar)
 
     runway = {}
     parseRunway(tokens, runway)
-    metar['runway'] = runway
+    if runway:
+        metar['runway'] = runway
 
     trendList = []
-    metar['trends'] = trendList
 
     while tokens:
         trend = {}
@@ -493,6 +505,9 @@ def parseString(string):
             break
 
         trendList.append(trend)
+
+    if trendList:
+        metar['trends'] = trendList
 
     parseRemark(tokens, metar)
 
@@ -512,18 +527,19 @@ def iterateAll():
     with urllib.request.urlopen('ftp://tgftp.nws.noaa.gov/data/observations/metar/stations/') as files:
         listing = files.read().splitlines(True)
         
+        forbidden = ['A302.TXT', 'AAXX.TXT', 'AGGG.TXT', 'AGGM.TXT', 'AK15.TXT',
+                     'ATAR.TXT', 'B635.TXT']
+
         for l in listing:
             filename = l.split()[-1].decode('ascii')
-            
-            forbidden = ['A302.TXT', 'AGGG.TXT', 'AK15.TXT', 'ESGL.TXT', 'ESGR.TXT', 'ATAR.TXT']
-            
+
             if filename in forbidden:
                 continue
             
             #if filename[0:2] != "ES":
             #    continue
             
-            parse("ftp://tgftp.nws.noaa.gov/data/observations/metar/stations/%s" % filename)
+            pprint(parse("ftp://tgftp.nws.noaa.gov/data/observations/metar/stations/%s" % filename))
             print("-----")
 
 import unittest
@@ -562,6 +578,15 @@ class DecometTest(unittest.TestCase):
         self.assertEqual(wind['unit'], 'KT')
 
         wind = {}
+        tokens = ['12345G67KT']
+        parseWind(tokens, wind)
+
+        self.assertEqual(wind['direction'], '123')
+        self.assertEqual(wind['speed'], '45')
+        self.assertEqual(wind['speed in gusts'], '67')
+        self.assertEqual(wind['unit'], 'KT')
+
+        wind = {}
         tokens = ['VRB45KT', '120V140']
         parseWind(tokens, wind)
 
@@ -586,6 +611,11 @@ class DecometTest(unittest.TestCase):
         self.assertEqual(visibility['distance'], '0100')
 
         visibility = {}
+        tokens = ['25KM']
+        parseVisibility(tokens, visibility)
+        self.assertEqual(visibility['distance'], '25KM')
+
+        visibility = {}
         tokens = ['R11/0550']
         parseVisibility(tokens, visibility)
         self.assertEqual(visibility['runways']['11']['distance'], '0550')
@@ -601,6 +631,8 @@ class DecometTest(unittest.TestCase):
         tokens = ['RA']
         parseFog(tokens, precip)
 
+        self.assertEqual(precip['intensity'], 'moderate')
+        self.assertNotIn('description' ,precip)
         self.assertEqual(precip['type'], 'rain')
 
         precip = {}
@@ -713,14 +745,18 @@ class DecometTest(unittest.TestCase):
 def main():
     #unittest.main()
 
-    #iterateAll()
+    iterateAll()
+    #AGGM 020300Z 09005KT 25KM HZ FEW020 SCT300 33/25 Q1005
+    #ABBN 160530Z 23004KT 9999 NSC 02/M05 Q1029 R14R/CLRD60 NOSIG RMK G/O QFE696
+    #ESSL 160520Z 00000KT 0100 R11/0550 R29/0300V0450N FG VV000 01/01 Q1026
+    #BGCH 271228Z 07013KT 3000 -SN BLSN DRSN VV009 M07/M09 Q1002
 
     #parse('ftp://tgftp.nws.noaa.gov/data/observations/metar/stations/ESSL.TXT')
     #print("---\n")
     #parse('ftp://tgftp.nws.noaa.gov/data/observations/metar/stations/YSSY.TXT')
     #print("---\n")
-    parse('ftp://tgftp.nws.noaa.gov/data/observations/metar/stations/EDDT.TXT')
-    print("---\n")
+    #parse('ftp://tgftp.nws.noaa.gov/data/observations/metar/stations/EDDT.TXT')
+    #print("---\n")
 
 
 if __name__ == "__main__":
